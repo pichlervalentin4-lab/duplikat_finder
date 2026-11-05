@@ -1,0 +1,56 @@
+name: Windows-App bauen
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pakete installieren
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: .exe bauen
+        run: pyinstaller --noconfirm --onefile --windowed --name Duplikat-Finder --collect-data customtkinter app.py
+
+      - name: Kurztest der .exe (startet sie, prüft dass sie nicht sofort abstürzt)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\Duplikat-Finder.exe -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) { Write-Error "Die App ist sofort beendet worden (Exit-Code $($p.ExitCode))"; exit 1 }
+          Stop-Process -Id $p.Id -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Duplikat-Finder
+          path: dist/Duplikat-Finder.exe
+
+      - name: Als Release "Neueste Version" veröffentlichen
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete neueste -y --cleanup-tag || true
+          gh release create neueste dist/Duplikat-Finder.exe \
+            --title "Duplikat-Finder (neueste Version)" \
+            --notes "Automatisch gebaut aus Commit ${GITHUB_SHA::7}. Herunterladen, Doppelklick, fertig." \
+            --target "$GITHUB_SHA"
