@@ -1,7 +1,7 @@
 import os
 import time
 
-from aufraeumen import (REGEL_AELTESTE, REGEL_KUERZESTER_PFAD, backups_auflisten, erstelle_plan,
+from aufraeumen import (REGEL_AELTESTE, REGEL_KUERZESTER_PFAD, REGEL_NEUESTE, backups_auflisten, erstelle_plan,
                         in_backup_verschieben, waehle_original, wiederherstellen)
 from duplikat_kern import BACKUP_ORDNERNAME, suche_duplikate
 
@@ -201,3 +201,13 @@ def test_protokoll_ist_ascii_auch_bei_umlauten(tmp_path):
     roh = (res.backup_ordner / PROTOKOLL).read_bytes()
     assert roh.isascii()
     assert json.loads(roh.splitlines()[0])["original"].endswith("Bild ß.jpg")
+
+
+def test_neueste_regel(tmp_path):
+    inhalt = os.urandom(500)
+    alt = schreibe(tmp_path / "a.jpg", inhalt)
+    neu = schreibe(tmp_path / "ganz" / "langer" / "pfad.jpg", inhalt)
+    t = time.time()
+    os.utime(alt, (t - 10000, t - 10000))
+    gruppe = suche_duplikate(tmp_path).gruppen[0]
+    assert gruppe[waehle_original(gruppe, REGEL_NEUESTE)] == neu

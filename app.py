@@ -17,7 +17,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 from PIL import Image, ImageOps
 
-from aufraeumen import (REGEL_AELTESTE, REGEL_KUERZESTER_PFAD, backup_in_papierkorb,
+from aufraeumen import (REGEL_AELTESTE, REGEL_KUERZESTER_PFAD, REGEL_NEUESTE, backup_in_papierkorb,
                         backups_auflisten, erstelle_plan, in_backup_verschieben,
                         papierkorb_moeglich, waehle_original, wiederherstellen)
 from dialoge import Meldungen
@@ -70,6 +70,7 @@ class App(ctk.CTk):
         self.ergebnis: Ergebnis | None = None
         self.behalten: list[int] = []
         self.regel = ctk.StringVar(value=REGEL_KUERZESTER_PFAD)
+        self.modus = ctk.StringVar(value="")  # "auto" = alle Duplikate entfernen, "selbst" = selbst entscheiden
         self.seite_nr = 0
         self.letztes_backup: Path | None = None
         self._queue: queue.Queue = queue.Queue()
@@ -131,10 +132,12 @@ class App(ctk.CTk):
         self.zurueck_btn.configure(text="← Zurück", command=self.zurueck)
         [self._seite_ordner, self._seite_suchen, self._seite_pruefen, self._seite_aufraeumen][nr]()
 
-    def _titel(self, eltern, titel: str, text: str) -> None:
-        ctk.CTkLabel(eltern, text=titel, font=self.f(22, "bold"), text_color=TEXT, anchor="w").pack(anchor="w")
+    def _titel(self, eltern, titel: str, text: str) -> ctk.CTkLabel:
+        kopf = ctk.CTkLabel(eltern, text=titel, font=self.f(22, "bold"), text_color=TEXT, anchor="w")
+        kopf.pack(anchor="w")
         ctk.CTkLabel(eltern, text=text, font=self.f(13), text_color=GRAU, anchor="w", justify="left",
                      wraplength=760).pack(anchor="w", pady=(4, 16))
+        return kopf
 
     def _nav(self, zurueck: bool, weiter_text: str | None, weiter_aktiv: bool = True, gefahr: bool = False) -> None:
         self.zurueck_btn.configure(state="normal" if zurueck else "disabled",
@@ -154,7 +157,12 @@ class App(ctk.CTk):
         self.zeige_schritt(max(0, self.schritt - 1 if self.schritt != 2 else 0))
 
     def weiter(self) -> None:
-        if self.schritt == 3:
+        if self.schritt == 1 and self.modus.get() == "auto":
+            # Ohne eigene Auswahl: pro Gruppe bleibt die Datei mit dem kürzesten Pfad
+            self.regel.set(REGEL_KUERZESTER_PFAD)
+            self.behalten = [waehle_original(g, REGEL_KUERZESTER_PFAD) for g in self.ergebnis.gruppen]
+            self.zeige_schritt(3)
+        elif self.schritt == 3:
             self._starte_aufraeumen()
         elif self.schritt == 4:
             pass
@@ -205,7 +213,7 @@ class App(ctk.CTk):
     # ---------- Schritt 2: Suchen ----------
     def _seite_suchen(self) -> None:
         s = self.inhalt
-        self._titel(s, "Suche läuft…", f"Ordner: {self.ordner}")
+        self.such_titel = self._titel(s, "Suche läuft…", f"Ordner: {self.ordner}")
         karte = ctk.CTkFrame(s, fg_color=KARTE, border_color=RAND, border_width=1, corner_radius=12)
         karte.pack(fill="x")
         self.phase_label = ctk.CTkLabel(karte, text="Dateien suchen", font=self.f(15, "bold"), text_color=TEXT, anchor="w")
@@ -216,9 +224,10 @@ class App(ctk.CTk):
         self.balken.start()
         self.zaehler_label = ctk.CTkLabel(karte, text="", font=self.f(12), text_color=GRAU, anchor="w")
         self.zaehler_label.pack(anchor="w", padx=18, pady=(6, 18))
-        ctk.CTkLabel(s, text="Zuerst wird nach Dateigröße sortiert, dann die ersten 64 KB verglichen und erst "
+        self.such_info = ctk.CTkLabel(s, text="Zuerst wird nach Dateigröße sortiert, dann die ersten 64 KB verglichen und erst "
                              "zum Schluss der ganze Inhalt (SHA-256). Darum geht es meistens schnell.",
-                     font=self.f(12), text_color=HELLGRAU, wraplength=760, justify="left").pack(anchor="w", pady=(12, 0))
+                     font=self.f(12), text_color=HELLGRAU, wraplength=760, justify="left")
+        self.such_info.pack(anchor="w", pady=(12, 0))
         self._nav(True, "Weiter →", False)
         self.zurueck_btn.configure(text="Abbrechen")
 
@@ -288,8 +297,12 @@ class App(ctk.CTk):
             self.phase_label.configure(text=f"Fertig: {zahl(len(ergebnis.gruppen))} Duplikat-Gruppen gefunden")
             self.zaehler_label.configure(text=f"{zahl(ergebnis.gepruefte_dateien)} Dateien geprüft, "
                                               f"{groesse_text(ergebnis.verschwendete_bytes)} doppelt belegt")
-            self._nav(True, "Weiter zum Prüfen →")
+            self.such_titel.configure(text="Suche abgeschlossen")
+            self.modus.set("")
+            self._modus_frage()
+            self._nav(True, "Weiter →", False)
         else:
+            self.such_titel.configure(text="Suche abgeschlossen")
             self.phase_label.configure(text="Keine Duplikate gefunden")
             self.zaehler_label.configure(text=f"{zahl(ergebnis.gepruefte_dateien)} Dateien geprüft, alles ist nur einmal da.")
             self._nav(True, None)
@@ -297,8 +310,46 @@ class App(ctk.CTk):
             self.zaehler_label.configure(text=self.zaehler_label.cget("text") +
                                          f" · {zahl(len(ergebnis.fehler))} Dateien nicht lesbar")
 
+    def _modus_frage(self) -> None:
+        """Nach der Suche: alles automatisch entfernen oder selbst entscheiden, was bleibt?"""
+        self.such_info.pack_forget()
+        ctk.CTkLabel(self.inhalt, text="Wie soll es weitergehen?", font=self.f(17, "bold"),
+                     text_color=TEXT, anchor="w").pack(anchor="w", pady=(20, 8))
+        reihe = ctk.CTkFrame(self.inhalt, fg_color=BG)
+        reihe.pack(fill="x")
+        reihe.grid_columnconfigure((0, 1), weight=1, uniform="m")
+        self._modus_karten = {}
+        karten = [("auto", "Alle Duplikate entfernen",
+                   "Pro Gruppe bleibt die Datei mit dem kürzesten Pfad, alle anderen kommen ins Backup. "
+                   "Du kannst es danach rückgängig machen."),
+                  ("selbst", "Selbst entscheiden, was bleibt",
+                   "Du wählst eine Regel (kürzester Pfad, älteste oder neueste Datei) "
+                   "oder klickst bei jeder Gruppe selbst an, welche Datei bleibt.")]
+        for spalte, (wert, titel, text) in enumerate(karten):
+            karte = ctk.CTkFrame(reihe, fg_color=KARTE, border_color=RAND, border_width=2, corner_radius=12)
+            karte.grid(row=0, column=spalte, sticky="nsew", padx=(0 if spalte == 0 else 8, 0 if spalte else 8))
+            knopf = ctk.CTkRadioButton(karte, text=titel, variable=self.modus, value=wert, font=self.f(14, "bold"),
+                                       text_color=TEXT, fg_color=LILA, hover_color=LILA_HOVER,
+                                       border_color="#b8bccc", command=self._modus_gewaehlt)
+            knopf.pack(anchor="w", padx=16, pady=(16, 6))
+            beschreibung = ctk.CTkLabel(karte, text=text, font=self.f(12), text_color=GRAU, anchor="w",
+                                        justify="left", wraplength=360)
+            beschreibung.pack(anchor="w", padx=(46, 16), pady=(0, 16))
+            for w in (karte, beschreibung):  # ganze Karte anklickbar
+                w.bind("<Button-1>", lambda _e, wert=wert: (self.modus.set(wert), self._modus_gewaehlt()))
+            self._modus_karten[wert] = karte
+
+    def _modus_gewaehlt(self) -> None:
+        for wert, karte in self._modus_karten.items():
+            karte.configure(border_color=LILA if wert == self.modus.get() else RAND)
+        if self.modus.get() == "auto":
+            self._nav(True, "Weiter zum Aufräumen →")
+        else:
+            self._nav(True, "Weiter zum Prüfen →")
+
     # ---------- Schritt 3: Prüfen ----------
     def _seite_pruefen(self) -> None:
+        self.modus.set("selbst")
         s = self.inhalt
         erg = self.ergebnis
         oben = ctk.CTkFrame(s, fg_color=BG)
@@ -311,7 +362,8 @@ class App(ctk.CTk):
         self._titel(links, "Welche Datei soll bleiben?",
                     f"Gilt für alle {zahl(len(erg.gruppen))} Gruppen. Unten kannst du einzelne Gruppen ändern.")
         optionen = [(REGEL_KUERZESTER_PFAD, "Kürzester Pfad", "Meist der richtige Ordner, nicht „Kopie von…“"),
-                    (REGEL_AELTESTE, "Älteste Datei", "Nach Änderungsdatum"),
+                    (REGEL_AELTESTE, "Älteste Datei", "Die zuerst erstellte Datei bleibt"),
+                    (REGEL_NEUESTE, "Neuestes Datum", "Die zuletzt erstellte oder geänderte Datei bleibt"),
                     ("selbst", "Ich wähle selbst", "Unten bei jeder Gruppe anklicken")]
         for wert, titel, text in optionen:
             ctk.CTkRadioButton(links, text=f"{titel}   ·   {text}", variable=self.regel, value=wert,
@@ -437,9 +489,12 @@ class App(ctk.CTk):
     def _seite_aufraeumen(self) -> None:
         s = self.inhalt
         plan = self._plan()
+        zusatz = (" Pro Gruppe bleibt die Datei mit dem kürzesten Pfad. Mit „Zurück“ kannst du die Auswahl "
+                  "ansehen und ändern.") if self.modus.get() == "auto" else ""
         self._titel(s, "Bereit zum Aufräumen",
                     "Es wird nichts gelöscht. Die Duplikate werden in einen Backup-Ordner verschoben, "
-                    "das Original jeder Gruppe bleibt an seinem Platz. Mit „Rückgängig machen“ kommt alles zurück.")
+                    "das Original jeder Gruppe bleibt an seinem Platz. Mit „Rückgängig machen“ kommt alles zurück."
+                    + zusatz)
         karte = ctk.CTkFrame(s, fg_color=KARTE, border_color=RAND, border_width=1, corner_radius=12)
         karte.pack(fill="x")
         self.auf_titel = ctk.CTkLabel(karte, text=f"{zahl(len(plan.eintraege))} Dateien ({groesse_text(plan.bytes_gesamt)}) "

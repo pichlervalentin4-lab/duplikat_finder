@@ -35,6 +35,7 @@ PROTOKOLL = "protokoll.jsonl"
 LIESMICH = "LIESMICH.txt"
 REGEL_KUERZESTER_PFAD = "kuerzester_pfad"
 REGEL_AELTESTE = "aelteste"
+REGEL_NEUESTE = "neueste"
 
 
 def _erstellt(st: os.stat_result) -> float:
@@ -57,6 +58,14 @@ def waehle_original(gruppe: list[Path], regel: str) -> int:
             except OSError:
                 return (float("inf"), 0)
         return min(range(len(gruppe)), key=alter)
+    if regel == REGEL_NEUESTE:
+        def neu(i: int):
+            try:
+                st = gruppe[i].stat()
+                return (max(_erstellt(st), st.st_mtime), -len(str(gruppe[i])))
+            except OSError:
+                return (float("-inf"), 0)
+        return max(range(len(gruppe)), key=neu)
     return min(range(len(gruppe)), key=lambda i: (len(str(gruppe[i])), str(gruppe[i]).lower()))
 
 
