@@ -12,7 +12,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 
 import customtkinter as ctk
 from PIL import Image, ImageOps
@@ -20,23 +20,10 @@ from PIL import Image, ImageOps
 from aufraeumen import (REGEL_AELTESTE, REGEL_KUERZESTER_PFAD, backup_in_papierkorb,
                         backups_auflisten, erstelle_plan, in_backup_verschieben,
                         papierkorb_moeglich, waehle_original, wiederherstellen)
+from dialoge import Meldungen
 from duplikat_kern import FOTO_ENDUNGEN, Ergebnis, suche_duplikate
-
-APP_NAME = "Duplikat-Finder"
-
-# Farben aus Design C
-BG = "#f7f8fc"
-KARTE = "#ffffff"
-RAND = "#e6e8f0"
-TEXT = "#1a1d29"
-GRAU = "#5c6178"
-HELLGRAU = "#8a8fa3"
-LILA = "#6c5ce7"
-LILA_HOVER = "#5a4bd6"
-LILA_HELL = "#e7e4fd"
-SCHIENE = "#dfe2ec"
-ROT = "#d63c4a"
-GRUEN = "#1f9d61"
+from stil import (APP_NAME, BG, GRAU, GRUEN, HELLGRAU, KARTE, LILA, LILA_HELL, LILA_HOVER, RAND,
+                  ROT, ROT_HOVER, SCHIENE, TEXT, schrift)
 
 GRUPPEN_PRO_SEITE = 12
 SCHRITTE = ["1  Ordner", "2  Suchen", "3  Prüfen", "4  Aufräumen"]
@@ -75,7 +62,8 @@ class App(ctk.CTk):
         self.geometry("920x660")
         self.minsize(820, 600)
 
-        self.f = lambda size=13, weight="normal": ctk.CTkFont(family="Segoe UI", size=size, weight=weight)
+        self.f = schrift
+        self.meldung = Meldungen(self)
 
         self.ordner: Path | None = None
         self.cloud_ueberspringen = ctk.BooleanVar(value=True)
@@ -101,8 +89,8 @@ class App(ctk.CTk):
 
     def _schliessen(self) -> None:
         if self._raeumt_auf:
-            messagebox.showwarning(APP_NAME, "Bitte warte, bis das Aufräumen fertig ist. "
-                                             "Sonst bleiben Dateien halb verschoben.")
+            self.meldung.warnung("Aufräumen läuft noch",
+                                 "Bitte warte, bis das Aufräumen fertig ist. Sonst bleiben Dateien halb verschoben.")
             return
         self._abbrechen.set()
         self.destroy()
@@ -157,7 +145,7 @@ class App(ctk.CTk):
             self.weiter_btn.grid()
             self.weiter_btn.configure(text=weiter_text, state="normal" if weiter_aktiv else "disabled",
                                       fg_color=ROT if gefahr else LILA,
-                                      hover_color="#b8303c" if gefahr else LILA_HOVER)
+                                      hover_color=ROT_HOVER if gefahr else LILA_HOVER)
 
     def zurueck(self) -> None:
         if self.schritt == 1:
@@ -278,7 +266,7 @@ class App(ctk.CTk):
                     self._suche_fertig(nachricht[1])
                     return
                 elif art == "fehler":
-                    messagebox.showerror(APP_NAME, f"Die Suche ist fehlgeschlagen:\n{nachricht[1]}")
+                    self.meldung.fehler("Die Suche ist fehlgeschlagen", str(nachricht[1]))
                     self.zeige_schritt(0)
                     return
                 elif art == "abgebrochen":
@@ -502,7 +490,8 @@ class App(ctk.CTk):
                     return
                 elif n[0] == "auf_fehler":
                     self._raeumt_auf = False
-                    messagebox.showerror(APP_NAME, f"Aufräumen fehlgeschlagen:\n{n[1]}")
+                    self.meldung.fehler("Aufräumen ist fehlgeschlagen",
+                                        f"{n[1]}\n\nBereits verschobene Dateien liegen sicher im Backup-Ordner.")
                     self._nav(True, "Jetzt aufräumen", True, gefahr=True)
                     return
         except queue.Empty:
@@ -539,44 +528,50 @@ class App(ctk.CTk):
         self.zeige_schritt(0)
 
     def _wiederherstellen(self, backup: Path) -> None:
-        if not messagebox.askyesno(APP_NAME, "Alle Dateien aus diesem Backup an ihren alten Platz zurücklegen?"):
+        if not self.meldung.frage("Alles zurücklegen?",
+                                  "Alle Dateien aus diesem Backup kommen wieder an ihren alten Platz.",
+                                  ja="Wiederherstellen"):
             return
         self.configure(cursor="watch")
         self.update()
         try:
             res = wiederherstellen(backup)
         except Exception as ex:
-            messagebox.showerror(APP_NAME, f"Wiederherstellen hat nicht geklappt:\n{ex}\n\n"
-                                           f"Die Dateien liegen weiter sicher in:\n{backup}")
+            self.meldung.fehler("Wiederherstellen hat nicht geklappt",
+                                f"{ex}\n\nDie Dateien liegen weiter sicher in:\n{backup}")
             return
         finally:
             self.configure(cursor="")
         if res.kaputte_zeilen:
-            messagebox.showwarning(APP_NAME, f"{zahl(res.kaputte_zeilen)} Zeilen im Protokoll waren beschädigt. "
-                                             f"Schau im Backup-Ordner nach, ob dort noch Dateien liegen:\n{backup}")
+            self.meldung.warnung("Protokoll teilweise beschädigt",
+                                 f"{zahl(res.kaputte_zeilen)} Zeilen im Protokoll waren beschädigt. "
+                                 f"Schau im Backup-Ordner nach, ob dort noch Dateien liegen:\n{backup}")
         if res.fehler:
-            messagebox.showwarning(APP_NAME, f"{zahl(res.wiederhergestellt)} Dateien zurückgelegt.\n"
-                                             f"{zahl(len(res.fehler))} konnten nicht zurückgelegt werden, "
-                                             f"z. B.:\n{res.fehler[0][0]}\n{res.fehler[0][1]}\n\n"
-                                             f"Sie bleiben im Backup-Ordner.")
+            self.meldung.warnung(f"{zahl(res.wiederhergestellt)} Dateien zurückgelegt",
+                                 f"{zahl(len(res.fehler))} konnten nicht zurückgelegt werden und bleiben im "
+                                 f"Backup-Ordner, z. B.:\n{res.fehler[0][0]}\n{res.fehler[0][1]}")
         else:
-            messagebox.showinfo(APP_NAME, f"{zahl(res.wiederhergestellt)} Dateien sind wieder an ihrem Platz.")
+            self.meldung.info("Wiederhergestellt",
+                              f"{zahl(res.wiederhergestellt)} Dateien sind wieder an ihrem Platz.")
         self._neu()
 
     def _backup_wegwerfen(self, backup: Path) -> None:
         if not papierkorb_moeglich(backup):
-            messagebox.showwarning(APP_NAME, "Dieses Laufwerk (z. B. USB-Stick oder Netzlaufwerk) hat keinen Papierkorb. "
-                                             "Lösch den Backup-Ordner selbst, wenn du sicher bist:\n" + str(backup))
+            self.meldung.warnung("Kein Papierkorb auf diesem Laufwerk",
+                                 "USB-Sticks, SD-Karten und Netzlaufwerke haben keinen Papierkorb. "
+                                 "Lösch den Backup-Ordner selbst, wenn du sicher bist:\n" + str(backup))
             return
-        if not messagebox.askyesno(APP_NAME, "Den Backup-Ordner in den Papierkorb verschieben?\n"
-                                             "Danach geht Rückgängig nur noch über den Papierkorb."):
+        if not self.meldung.frage("Backup in den Papierkorb?",
+                                  "Danach geht Rückgängig nur noch über den Papierkorb.",
+                                  ja="In den Papierkorb", gefahr=True):
             return
         try:
             backup_in_papierkorb(backup)
-            messagebox.showinfo(APP_NAME, "Backup ist im Papierkorb.")
+            self.meldung.info("Backup ist im Papierkorb",
+                              "Wenn du den Papierkorb leerst, ist der Platz wirklich frei.")
             self._neu()
         except Exception as ex:
-            messagebox.showerror(APP_NAME, f"Das hat nicht geklappt:\n{ex}")
+            self.meldung.fehler("Das hat nicht geklappt", str(ex))
 
 
 if __name__ == "__main__":
