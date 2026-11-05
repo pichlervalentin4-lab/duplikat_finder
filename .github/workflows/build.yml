@@ -1,4 +1,4 @@
-name: Windows-App bauen
+name: App bauen (Windows, macOS, Linux)
 
 on:
   push:
@@ -11,13 +11,27 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            datei: Duplikat-Finder.exe
+          - os: macos-latest        # Apple Silicon (M1 und neuer)
+            datei: Duplikat-Finder-macOS.zip
+          - os: ubuntu-22.04        # ältere Basis, läuft dadurch auf mehr Linux-Versionen
+            datei: Duplikat-Finder-Linux.tar.gz
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Linux-Pakete für Tests und Starttest
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q xvfb
 
       - name: Pakete installieren
         run: |
@@ -27,30 +41,71 @@ jobs:
       - name: Tests
         run: python -m pytest -q
 
-      - name: .exe bauen
-        run: pyinstaller --noconfirm --onefile --windowed --name Duplikat-Finder --collect-data customtkinter app.py
-
-      - name: Kurztest der .exe (startet sie, prüft dass sie nicht sofort abstürzt)
-        shell: pwsh
+      - name: App bauen
+        shell: bash
         run: |
-          $p = Start-Process -FilePath dist\Duplikat-Finder.exe -PassThru
-          Start-Sleep -Seconds 8
-          if ($p.HasExited) { Write-Error "Die App ist sofort beendet worden (Exit-Code $($p.ExitCode))"; exit 1 }
-          Stop-Process -Id $p.Id -Force
+          # Auf dem Mac als normale .app (onedir), sonst als einzelne Datei
+          if [ "$RUNNER_OS" = "macOS" ]; then modus=--onedir; else modus=--onefile; fi
+          pyinstaller --noconfirm $modus --windowed --name Duplikat-Finder --collect-data customtkinter app.py
+
+      - name: Starttest (startet die App, prüft dass sie nicht sofort abstürzt)
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Windows) programm="dist/Duplikat-Finder.exe" ;;
+            macOS)   programm="dist/Duplikat-Finder.app/Contents/MacOS/Duplikat-Finder" ;;
+            Linux)   programm="dist/Duplikat-Finder" ;;
+          esac
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            Xvfb :99 -screen 0 1280x900x24 & export DISPLAY=:99; sleep 2
+          fi
+          "$programm" & pid=$!
+          sleep 10
+          if ! kill -0 $pid 2>/dev/null; then
+            wait $pid; echo "::error::Die App ist sofort beendet worden (Exit-Code $?)"; exit 1
+          fi
+          kill $pid 2>/dev/null || taskkill //F //PID $pid 2>/dev/null || true
+
+      - name: Verpacken
+        shell: bash
+        run: |
+          mkdir paket
+          case "$RUNNER_OS" in
+            Windows) cp dist/Duplikat-Finder.exe "paket/${{ matrix.datei }}" ;;
+            # ditto behält die Mac-App-Struktur und Rechte bei
+            macOS)   ditto -c -k --keepParent dist/Duplikat-Finder.app "paket/${{ matrix.datei }}" ;;
+            # tar behält das Ausführen-Recht bei
+            Linux)   tar -czf "paket/${{ matrix.datei }}" -C dist Duplikat-Finder ;;
+          esac
+          ls -la paket
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Duplikat-Finder
-          path: dist/Duplikat-Finder.exe
+          name: ${{ matrix.datei }}
+          path: paket/${{ matrix.datei }}
+
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: pakete
+          merge-multiple: true
 
       - name: Als Release "Neueste Version" veröffentlichen
-        if: github.ref == 'refs/heads/main'
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
+          ls -la pakete
           gh release delete neueste -y --cleanup-tag || true
-          gh release create neueste dist/Duplikat-Finder.exe \
+          gh release create neueste pakete/* \
             --title "Duplikat-Finder (neueste Version)" \
-            --notes "Automatisch gebaut aus Commit ${GITHUB_SHA::7}. Herunterladen, Doppelklick, fertig." \
-            --target "$GITHUB_SHA"
+            --target "$GITHUB_SHA" \
+            --notes "Automatisch gebaut aus Commit ${GITHUB_SHA::7}.
+
+          - **Windows 10/11:** Duplikat-Finder.exe laden und doppelklicken.
+          - **macOS (Apple Silicon, M1 und neuer):** ZIP entpacken, Duplikat-Finder.app in Programme ziehen, beim ersten Mal Rechtsklick → Öffnen.
+          - **Linux (64 Bit):** entpacken und ./Duplikat-Finder starten."
