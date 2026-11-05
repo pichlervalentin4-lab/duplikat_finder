@@ -158,9 +158,9 @@ class App(ctk.CTk):
 
     def weiter(self) -> None:
         if self.schritt == 1 and self.modus.get() == "auto":
-            # Ohne eigene Auswahl: pro Gruppe bleibt die Datei mit dem kürzesten Pfad
-            self.regel.set(REGEL_KUERZESTER_PFAD)
-            self.behalten = [waehle_original(g, REGEL_KUERZESTER_PFAD) for g in self.ergebnis.gruppen]
+            # Ohne eigene Auswahl: pro Gruppe bleibt die Datei mit dem neuesten Datum
+            self.regel.set(REGEL_NEUESTE)
+            self.behalten = [waehle_original(g, REGEL_NEUESTE) for g in self.ergebnis.gruppen]
             self.zeige_schritt(3)
         elif self.schritt == 3:
             self._starte_aufraeumen()
@@ -320,7 +320,7 @@ class App(ctk.CTk):
         reihe.grid_columnconfigure((0, 1), weight=1, uniform="m")
         self._modus_karten = {}
         karten = [("auto", "Alle Duplikate entfernen",
-                   "Pro Gruppe bleibt die Datei mit dem kürzesten Pfad, alle anderen kommen ins Backup. "
+                   "Pro Gruppe bleibt die Datei mit dem neuesten Datum, alle anderen kommen ins Backup. "
                    "Du kannst es danach rückgängig machen."),
                   ("selbst", "Selbst entscheiden, was bleibt",
                    "Du wählst eine Regel (kürzester Pfad, älteste oder neueste Datei) "
@@ -489,7 +489,7 @@ class App(ctk.CTk):
     def _seite_aufraeumen(self) -> None:
         s = self.inhalt
         plan = self._plan()
-        zusatz = (" Pro Gruppe bleibt die Datei mit dem kürzesten Pfad. Mit „Zurück“ kannst du die Auswahl "
+        zusatz = (" Pro Gruppe bleibt die Datei mit dem neuesten Datum. Mit „Zurück“ kannst du die Auswahl "
                   "ansehen und ändern.") if self.modus.get() == "auto" else ""
         self._titel(s, "Bereit zum Aufräumen",
                     "Es wird nichts gelöscht. Die Duplikate werden in einen Backup-Ordner verschoben, "

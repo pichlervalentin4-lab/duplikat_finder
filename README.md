@@ -21,7 +21,7 @@ Nur unter Windows: OneDrive-Dateien, die nur in der Cloud liegen, werden erkannt
 1. **Ordner** wählen.
 2. **Suchen:** zuerst nach Dateigröße, dann die ersten 64 KB, dann der ganze Inhalt (SHA-256). Nur exakt gleiche Dateien zählen.
    Dateien, die nur in der OneDrive-Cloud liegen, werden übersprungen, damit nichts heruntergeladen wird.
-3. **Prüfen:** Nach der Suche fragt die App, ob einfach **alle Duplikate entfernt** werden sollen (pro Gruppe bleibt die Datei mit dem kürzesten Pfad) oder ob du **selbst entscheidest**. Dann wählst du eine Regel (kürzester Pfad, älteste Datei, neuestes Datum) oder klickst bei jeder Gruppe an, welche Datei bleibt.
+3. **Prüfen:** Nach der Suche fragt die App, ob einfach **alle Duplikate entfernt** werden sollen (pro Gruppe bleibt die Datei mit dem neuesten Datum) oder ob du **selbst entscheidest**. Dann wählst du eine Regel (kürzester Pfad, älteste Datei, neuestes Datum) oder klickst bei jeder Gruppe an, welche Datei bleibt.
 4. **Aufräumen:** Duplikate werden nicht gelöscht, sondern nach `_Duplikat-Backup\<Datum_Uhrzeit>` im gewählten Ordner verschoben.
    Es wird nie etwas überschrieben. „Rückgängig machen“ legt alles zurück. Erst wenn alles passt, das Backup in den Papierkorb schieben.
 
