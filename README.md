@@ -4,9 +4,15 @@ Findet exakt gleiche Fotos und Videos in einem Ordner (inklusive Unterordner) un
 
 ## Herunterladen
 
-Unter **Releases → Duplikat-Finder (neueste Version)** die Datei `Duplikat-Finder.exe` laden und doppelklicken.
-Windows zeigt beim ersten Start eventuell „Der Computer wurde durch Windows geschützt“, weil die App nicht signiert ist:
-**Weitere Informationen → Trotzdem ausführen**.
+Unter **Releases → Duplikat-Finder (neueste Version)** die passende Datei laden:
+
+| System | Datei | Starten |
+|---|---|---|
+| Windows 10/11 (64 Bit) | `Duplikat-Finder.exe` | Doppelklick. Bei „Der Computer wurde durch Windows geschützt“: **Weitere Informationen → Trotzdem ausführen**. |
+| macOS (Apple Silicon, M1 und neuer) | `Duplikat-Finder-macOS.zip` | Entpacken, `Duplikat-Finder.app` in „Programme“ ziehen. Beim ersten Mal **Rechtsklick → Öffnen** (die App ist nicht von Apple signiert). |
+| Linux (64 Bit) | `Duplikat-Finder-Linux.tar.gz` | Entpacken und `./Duplikat-Finder` starten. |
+
+Nur unter Windows: OneDrive-Dateien, die nur in der Cloud liegen, werden erkannt und übersprungen, und vor „Backup in den Papierkorb“ wird geprüft, ob das Laufwerk einen Papierkorb hat.
 
 ![Schritt 3: Prüfen](screenshots/3_pruefen.png)
 
@@ -27,5 +33,5 @@ python -m pytest
 python app.py
 ```
 
-Die `.exe` baut GitHub Actions automatisch bei jedem Push auf `main` (`.github/workflows/build.yml`).
+Die Apps für Windows, macOS und Linux baut GitHub Actions automatisch bei jedem Push auf `main` (`.github/workflows/build.yml`) und testet vorher alles auf allen drei Systemen.
 Lokal unter Windows geht es auch mit `build_exe.bat`.
